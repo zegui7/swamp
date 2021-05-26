@@ -1,6 +1,10 @@
-kill $(pgrep chromedriver | xargs)
+kill $(pgrep chromium-browse | xargs)
 
-for i in $(seq 1 $(($(python3 mapping_the_swamp.py list | wc -l)-1)))
+for i in $(seq 1 $(($(python3 mapping_the_swamp.py --idx list | wc -l)-1)))
 do 
-    function retry { python3 mapping_the_swamp.py $i && echo "success" || (echo "fail" && retry) }; retry
+	DONE=0
+	while [ $DONE == 0 ]
+	do
+		python3 mapping_the_swamp.py --idx $i && DONE=1
+	done
 done

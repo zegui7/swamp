@@ -4,11 +4,14 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common import exceptions
 import requests
 import sys
 import os
 from threading import Thread
 from queue import Queue
+
+import argparse
 
 import datetime
 
@@ -28,7 +31,7 @@ def scroll_down(driver):
         driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
 
         # Wait to load the page.
-        time.sleep(1.2)
+        time.sleep(2.5)
 
         # Calculate new scroll height and compare with last scroll height.
         new_height = driver.execute_script("return document.documentElement.scrollHeight")
@@ -37,117 +40,6 @@ def scroll_down(driver):
             break
 
         last_height = new_height
-
-def scrape_comment_thread(c):
-
-    def scrape_comment(ytd_comment_thread_renderer):
-
-        click_more = ytd_comment_thread_renderer.find_elements_by_xpath(
-            ".//span[@class='more-button-exp style-scope ytd-comment-renderer']")
-        click_more = [x for x in click_more if x.text == 'Read more']
-        if len(click_more) > 0:
-            browser.execute_script(
-                "window.scrollTo(0, {});".format(click_more[-1].location['y'] - 200))
-            click_more[0].click()
-        author = ytd_comment_thread_renderer.find_element_by_xpath(
-            './/a[@id="author-text"]')
-        main_text = ytd_comment_thread_renderer.find_element_by_xpath(
-            './/yt-formatted-string[@id="content-text"]')
-        vote_count = ytd_comment_thread_renderer.find_element_by_xpath(
-            './/span[@id="vote-count-middle"]')
-        time_ago = ytd_comment_thread_renderer.find_element_by_xpath(
-            './/a[@class="yt-simple-endpoint style-scope yt-formatted-string"]')
-
-        url = author.get_attribute('href')
-        return author,main_text,vote_count,url,time_ago
-
-    reply_list = []
-
-
-    reply_button = c.find_elements_by_xpath(
-        './/yt-formatted-string[@class="style-scope ytd-button-renderer"]')
-    reply_button = [x for x in reply_button if 'repl' in x.text]
-    if len(reply_button) > 0:
-        check_trial_bs()
-        reply_button = reply_button[0]
-        browser.execute_script("window.scrollTo(0, {});".format(reply_button.location['y']-200))
-        ActionChains(browser).move_to_element(
-            reply_button)
-        ActionChains(browser).click(reply_button).perform()
-        replies_found = False
-        all_comments = False
-        while replies_found == False:
-            reply_general = c.find_element_by_xpath('.//div[@id="replies"]')
-            replies = reply_general.find_elements_by_xpath('.//ytd-comment-renderer')
-            if len(replies) > 0:
-                replies_found = True
-
-        time.sleep(0.5)
-
-        check_more_replies_success = False
-        while check_more_replies_success == False:
-            try:
-                check_more_replies = reply_general.find_elements_by_xpath(
-                    './/yt-formatted-string[@class="style-scope yt-next-continuation"]')
-
-                check_more_replies = [
-                    x for x in check_more_replies if 'repl' in x.text
-                ]
-
-                check_more_replies_success = True
-            except:
-                pass
-
-        if len(check_more_replies) > 0:
-            while all_comments == False:
-                if len(check_more_replies) > 0:
-                    browser.execute_script(
-                        "window.scrollTo(0, {});".format(check_more_replies[-1].location['y'] - 200))
-
-                    check_more_replies[-1].click()
-                    keep_going = True
-                    curr_size = browser.execute_script(
-                        "return document.documentElement.scrollHeight")
-                    time.sleep(1.0)
-                    while keep_going:
-                        new_size = browser.execute_script(
-                            "return document.documentElement.scrollHeight")
-                        if curr_size == new_size:
-                            keep_going = False
-                        else:
-                            curr_size = new_size
-                        time.sleep(0.5)
-                    check_more_replies = reply_general.find_elements_by_xpath(
-                        './/yt-formatted-string[@class="style-scope yt-next-continuation"]')
-                    check_more_replies = [
-                        x for x in check_more_replies if 'repl' in x.text]
-                else:
-                    all_comments = True
-        replies = reply_general.find_elements_by_xpath('.//ytd-comment-renderer')
-        for reply in replies:
-            author,main_text,vote_count,url,time_ago = scrape_comment(reply)
-            reply_list.append({
-                'author':author.text,
-                'main_text':main_text.text,
-                'vote_count':vote_count.text,
-                'url':url,
-                'time_ago':time_ago.text
-            })
-
-    author,main_text,vote_count,url,time_ago = scrape_comment(c)
-
-    output_dict = {
-        'main': {
-            'author':author.text,
-            'main_text':main_text.text,
-            'vote_count':vote_count.text,
-            'url':url,
-            'time_ago':time_ago.text
-        },
-        'replies': reply_list
-    }
-
-    return output_dict
 
 def check_trial_bs():
     trial_bs = browser.find_elements_by_xpath(
@@ -189,6 +81,7 @@ link_store = {
 def main():
 
     link = link_store[curr_swamp]
+    print(curr_swamp)
 
     browser.get(link)
 
@@ -197,47 +90,91 @@ def main():
     video_element = [x for x in video_element if x.text == 'VIDEOS'][0]
     video_element.click()
     time.sleep(1)
+    
+    all_videos = browser.find_elements_by_xpath(
+        "//div[@class='style-scope ytd-grid-video-renderer']/div[@id='details']")
+
+    O = []
+    if os.path.exists('video_urls/{}.pkl'.format(curr_swamp)):
+        with open('video_urls/{}.pkl'.format(curr_swamp),'rb') as o:
+            while True:
+                try:
+                    O.append(pickle.load(o))
+                except EOFError:
+                    break
+
+        A = O[0][0]
+        B = all_videos[0].text.split('\n')[0]
+        if A == B:
+            return None
+    
+    all_done_urls = [x[1] for x in O]
+
+    print("\tScrolling down...")
     scroll_down(browser)
 
     # grabbing all video urls
     all_videos = browser.find_elements_by_xpath(
         "//div[@class='style-scope ytd-grid-video-renderer']/div[@id='details']")
-
     check_dates = True
+    
     with open('video_urls/{}.pkl'.format(curr_swamp),'wb') as OUTPUT:
+        i = 0
         for x in all_videos:
-            title = x.find_element_by_id("video-title")
-            title_text = title.text
+            try:
+                i += 1
+                title = x.find_element_by_id("video-title")
+                title_text = title.text
+                print('\tCurrent video: {} ({}/{})'.format(title_text,i,len(all_videos)))
 
-            if check_dates == True:
-                date = x.find_elements_by_xpath(
-                    ".//span[@class='style-scope ytd-grid-video-renderer']")
-                date = date[1].text
-                if any([x in date for x in ['day','second','minute','hour']]):
-                    date = date
+                if check_dates == True:
+                    date = x.find_elements_by_xpath(
+                        ".//span[@class='style-scope ytd-grid-video-renderer']")
+                    date = date[1].text
+                    if any([x in date for x in ['day','second','minute','hour']]):
+                        date = date
+                    else:
+                        date = '>1 week'
+                        check_dates = False
+            
                 else:
                     date = '>1 week'
-                    check_dates = False
-            else:
-                date = '>1 week'
+                url = title.get_attribute('href')
+                if url in all_done_urls:
+                    break
+                info = [title_text,url,date]
 
-            url = title.get_attribute('href')
-            info = [title_text,url,date]
+                pickle.dump(info,OUTPUT,
+                            protocol=pickle.HIGHEST_PROTOCOL)
 
+            except exceptions.StaleElementReferenceException as e:
+                pass 
+        for info in O:
             pickle.dump(info,OUTPUT,
                         protocol=pickle.HIGHEST_PROTOCOL)
 
-if sys.argv[1] == 'list':
+parser = argparse.ArgumentParser(description='Fetch videos.')
+parser.add_argument('--idx',dest='idx',
+                    type=str,
+                    default='list',
+                    help='ID of the channel.')
+parser.add_argument('--headless',dest='headless',
+                    action='store_true',
+                    help='Should chromedriver be run in headless mode?')
+args = parser.parse_args()
+
+if args.idx == 'list':
     for n in link_store:
         print('{}'.format(n.encode()),link_store[n])
 
 else:
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument("--mute-audio")
-    #chrome_options.add_argument("")
+    if args.headless == True:
+        chrome_options.add_argument("--headless")
 
     browser = webdriver.Chrome(options=chrome_options)
-    idx = int(sys.argv[1])
+    idx = int(args.idx)
     curr_swamp = [x for x in link_store.keys()][idx]
 
     try:
@@ -246,5 +183,4 @@ else:
         pass
 
     swamp_list = main()
-
     browser.quit()

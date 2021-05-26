@@ -10,10 +10,9 @@ import os
 from threading import Thread
 from queue import Queue
 
+import argparse
 import datetime
-
 import pickle
-
 import time
 
 def scroll_down(driver):
@@ -23,7 +22,6 @@ def scroll_down(driver):
     last_height = driver.execute_script("return document.documentElement.scrollHeight")
 
     while True:
-
         # Scroll down to the bottom.
         driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
 
@@ -41,9 +39,8 @@ def scroll_down(driver):
 def scrape_comment_thread(c):
 
     def scrape_comment(ytd_comment_thread_renderer):
-
         click_more = ytd_comment_thread_renderer.find_elements_by_xpath(
-            ".//span[@class='more-button-exp style-scope ytd-comment-renderer']")
+            ".//span[@class='more-button style-scope ytd-comment-renderer']")
         click_more = [x for x in click_more if x.text == 'Read more']
         if len(click_more) > 0:
             browser.execute_script(
@@ -63,7 +60,6 @@ def scrape_comment_thread(c):
 
     reply_list = []
 
-
     reply_button = c.find_elements_by_xpath(
         './/yt-formatted-string[@class="style-scope ytd-button-renderer"]')
     reply_button = [x for x in reply_button if 'repl' in x.text]
@@ -82,8 +78,7 @@ def scrape_comment_thread(c):
             if len(replies) > 0:
                 replies_found = True
 
-        time.sleep(0.5)
-
+        time.sleep(1.0)
         check_more_replies_success = False
         while check_more_replies_success == False:
             try:
@@ -97,18 +92,19 @@ def scrape_comment_thread(c):
                 check_more_replies_success = True
             except:
                 pass
-
+        
         if len(check_more_replies) > 0:
             while all_comments == False:
                 if len(check_more_replies) > 0:
                     browser.execute_script(
-                        "window.scrollTo(0, {});".format(check_more_replies[-1].location['y'] - 200))
+                        "window.scrollTo(0, {});".format(
+                            check_more_replies[-1].location['y'] - 200))
 
                     check_more_replies[-1].click()
                     keep_going = True
                     curr_size = browser.execute_script(
                         "return document.documentElement.scrollHeight")
-                    time.sleep(1.0)
+                    time.sleep(1.5)
                     while keep_going:
                         new_size = browser.execute_script(
                             "return document.documentElement.scrollHeight")
@@ -116,7 +112,7 @@ def scrape_comment_thread(c):
                             keep_going = False
                         else:
                             curr_size = new_size
-                        time.sleep(0.5)
+                        time.sleep(1.0)
                     check_more_replies = reply_general.find_elements_by_xpath(
                         './/yt-formatted-string[@class="style-scope yt-next-continuation"]')
                     check_more_replies = [
@@ -124,6 +120,7 @@ def scrape_comment_thread(c):
                 else:
                     all_comments = True
         replies = reply_general.find_elements_by_xpath('.//ytd-comment-renderer')
+        
         for reply in replies:
             author,main_text,vote_count,url,time_ago = scrape_comment(reply)
             reply_list.append({
@@ -157,6 +154,41 @@ def check_trial_bs():
     trial_bs = [x for x in trial_bs if x.text.upper() == 'SKIP TRIAL']
     if len(trial_bs) > 0:
         trial_bs[0].click()
+        return True
+    else:
+        return False
+
+def sign_up_handler():
+    dialogue_element = browser.find_elements_by_xpath(
+        "//yt-formatted-string[@class='style-scope yt-button-renderer style-text size-small']")
+    dialogue_element = [
+            x for x in dialogue_element if x.text == 'NO, THANKS']
+    if len(dialogue_element) > 0:
+        dialogue_element[0].click()
+        return True
+    else:
+        return False
+
+def tracking_consent_handler():
+    dialogue_element = browser.find_elements_by_xpath(
+        "//iframe[@class='style-scope ytd-consent-bump-lightbox']")
+
+    if len(dialogue_element) > 0:
+        browser.switch_to.frame(dialogue_element[0])
+
+        dialogue_element = browser.find_elements_by_xpath(
+            ".//form/div/span/span")
+        dialogue_element = [
+            x for x in dialogue_element if x.text == 'I agree']
+        if len(dialogue_element) > 0:
+            dialogue_element[0].click()
+            browser.switch_to.default_content()
+            return True
+        else:
+            browser.switch_to.default_content()
+            return False
+    else:
+        return False
 
 def thumbs_to_int(thumbs):
     try:
@@ -170,6 +202,11 @@ def thumbs_to_int(thumbs):
             return int(thumbs)
     except:
         return ''
+
+try:
+    os.makedirs('video_urls')
+except:
+    pass
 
 link_store = {
     r"DefesaDeHonra":'https://www.youtube.com/channel/UCsXXjOpQqJek_CnbXQZtkag',
@@ -208,17 +245,18 @@ def main(swamp_list):
     all_video_dates = {}
 
     check_dates = True
+    
     with open('video_urls/{}.pkl'.format(curr_swamp),'rb') as o:
         try:
             while True:
                 title_text,url,date = pickle.load(o)
                 if date != '>1 week':
                     all_video_dates[title_text] = date
-
                 all_video_urls[title_text] = url
         except:
             pass
-
+    
+    time.sleep(1.0)
     all_video_url_keys = [x for x in all_video_urls.keys()]
     all_video_url_keys.reverse()
 
@@ -232,10 +270,14 @@ def main(swamp_list):
 
     OUTPUT = open(output_name,'ab')
 
+    trial_check = False
+    sign_up_check = False
+    consent_check = False
+
     print("Number of videos already scrapped:",len(swamp_list))
 
     for i,title in enumerate(all_video_url_keys):
-        print('({}/{})'.format(i+1,len(all_video_urls)))
+        print('\t{} ({}/{})'.format(all_video_urls[title],i+1,len(all_video_urls)))
         if title not in [x['title'] for x in swamp_list]:
             url = all_video_urls[title]
             browser.get(url)
@@ -267,7 +309,7 @@ def main(swamp_list):
             element.parentNode.removeChild(element);
             """, element)
 
-            init_height = 500
+            init_height = 1000
             browser.execute_script(
                 "window.scrollTo(0, {});".format(init_height))
             time.sleep(0.5)
@@ -277,13 +319,15 @@ def main(swamp_list):
             while S.text == '':
                 S = browser.find_element_by_xpath("//ytd-item-section-renderer")
 
-            print('\t',"Scrapping comments...")
+            print('\tScrapping comments...')
 
             comments = []
             curr = init_height
             keep_going = True
+            keep_going_count = 0
             curr_text = S.text
             last_height = 0
+            N = 0
             while keep_going == True:
                 n_comments = len(comments)
                 curr += int(S.size['height'])
@@ -291,15 +335,38 @@ def main(swamp_list):
                 time.sleep(0.5)
                 curr_height = browser.execute_script("return document.documentElement.scrollHeight")
                 if curr_height == last_height:
-                    keep_going = False
+                    keep_going_count += 1
+                    # tries to scroll down three times before stopping
+                    if keep_going_count >= 3:
+                        keep_going = False
                 else:
                     last_height = curr_height
-
-                comment_objs = browser.find_elements_by_xpath('//ytd-comment-thread-renderer')
+                    keep_going_count = 0
+                
+                M = (3*(1-trial_check))
+                M += (3*(1-sign_up_check)) 
+                M += 1 - consent_check
+                for _ in range(M):
+                    time.sleep(1)
+                    try:
+                        trial_check = check_trial_bs()
+                    except:
+                        pass
+                    try:
+                        sign_up_check = sign_up_handler()
+                    except:
+                        pass
+                    try:
+                        consent_check = tracking_consent_handler()
+                    except: 
+                        pass                
+                comment_objs = browser.find_elements_by_xpath(
+                        '//ytd-comment-thread-renderer')                
 
                 for c in comment_objs[n_comments:]:
-                    check_trial_bs()
+                    print('#',end='')
                     comments.append(scrape_comment_thread(c))
+                    sys.stdout.flush()
 
             print('\tNumber of comments found:',len(comments))
             print('\tRecording entries...')
@@ -318,21 +385,37 @@ def main(swamp_list):
             pickle.dump(video_dict,OUTPUT,
                         protocol=pickle.HIGHEST_PROTOCOL)
 
-if sys.argv[1] == 'list':
+parser = argparse.ArgumentParser(description='Fetch videos.')
+parser.add_argument('--idx',dest='idx',
+                    type=str,
+                    default='list',
+                    help='ID of the channel.')
+parser.add_argument('--headless',dest='headless',
+                    action='store_true',
+                    help='Should chromedriver be run in headless mode?')
+args = parser.parse_args()
+
+if args.idx == 'list':
     for n in link_store:
         print('{}'.format(n.encode()),link_store[n])
 
 else:
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument("--mute-audio")
-    #chrome_options.add_argument("--headless")
+    if args.headless == True:
+        chrome_options.add_argument("--headless")
     chrome_options.add_argument("window-size=1920,1080")
 
     browser = webdriver.Chrome(options=chrome_options)
-    idx = int(sys.argv[1])
+    idx = int(args.idx)
     curr_swamp = [x for x in link_store.keys()][idx]
+    print(curr_swamp)
+    try:
+        os.makedirs('comments')
+    except:
+        pass
 
-    output_name = '{}.pkl'.format(curr_swamp)
+    output_name = 'comments/{}.pkl'.format(curr_swamp)
 
     if os.path.isfile(output_name):
         with open(output_name,'rb') as o:
